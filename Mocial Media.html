@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mocial Media — Single file</title>
+  <style>
+    :root{--bg:#0f1720;--card:#0b1220;--accent:#06b6d4;--muted:#9aa6b2;color-scheme:dark}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#061018 0%, #0b1a24 100%);color:#e6eef6}
+    .app{max-width:980px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;gap:16px}
+    header h1{margin:0;font-size:20px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));border:1px solid rgba(255,255,255,0.04);padding:14px;border-radius:12px;margin-top:14px}
+    .row{display:flex;gap:10px}
+    input,button,textarea,select{font:inherit}
+    input,textarea,select{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px;border-radius:8px;color:inherit}
+    textarea{min-height:70px;width:100%;resize:vertical}
+    .btn{background:var(--accent);color:#022; border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px;margin-top:16px}
+    .feed{display:flex;flex-direction:column;gap:12px}
+    .post{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+    .post .meta{display:flex;justify-content:space-between;align-items:center}
+    .video-wrap{position:relative;max-width:100%;border-radius:8px;overflow:hidden;margin-top:10px;background:#000}
+    .video-wrap video,.video-wrap img{display:block;max-width:100%;height:auto}
+    /* watermark overlay */
+    .watermark-overlay{position:absolute;pointer-events:none;z-index:10;transform-origin:center}
+    .controls{display:flex;flex-direction:column;gap:8px}
+    label{font-size:13px}
+    .small{font-size:13px;padding:6px}
+    .sidebar{position:sticky;top:20px}
+
+    footer{margin-top:20px;text-align:center;color:var(--muted);font-size:13px}
+    .login-box{display:flex;gap:8px;align-items:center}
+    .pill{background:rgba(255,255,255,0.03);padding:6px 10px;border-radius:999px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div style="width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#06b6d4,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:700">MM</div>
+      <div>
+        <h1>Mocial Media</h1>
+        <div class="muted">Client-only demo — localStorage for accounts & posts</div>
+      </div>
+      <div style="margin-left:auto" id="userArea"></div>
+    </header>
+
+    <div class="grid">
+      <main>
+        <section class="card">
+          <div id="composerArea"></div>
+        </section>
+
+        <section class="feed" id="feed"></section>
+      </main>
+
+      <aside class="sidebar">
+        <div class="card">
+          <h3>Watermark manager</h3>
+          <div class="controls">
+            <label>Upload watermark (gif / webm / mp4)</label>
+            <input type="file" id="wmFile" accept="image/gif,video/*" />
+            <label>Opacity <span id="wmOpacityLabel">0.6</span></label>
+            <input type="range" id="wmOpacity" min="0" max="1" step="0.05" value="0.6" />
+            <label>Size (percent)</label>
+            <input type="range" id="wmSize" min="10" max="60" step="1" value="20" />
+            <label>Position</label>
+            <select id="wmPosition">
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-left">Bottom left</option>
+              <option value="top-right">Top right</option>
+              <option value="top-left">Top left</option>
+              <option value="center">Center</option>
+            </select>
+            <div class="muted">This watermark will be shown on <strong>video posts</strong> in the feed when enabled.</div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn small" id="saveWm">Save</button>
+              <button class="small" id="clearWm">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h4>About</h4>
+          <div class="muted">This is a pure HTML/JS single-file starter app. Posts and account info stay in your browser (localStorage). Watermarks are local object URLs and won't be uploaded anywhere.</div>
+        </div>
+      </aside>
+    </div>
+
+    <footer>Made with ❤️ — Mocial Media demo</footer>
+  </div>
+
+  <script>
+    // --- Simple client-only auth & storage ---
+    const LS_KEY = 'mocial_v1';
+    const state = loadState();
+
+    function loadState(){
+      try{const raw = localStorage.getItem(LS_KEY); if(raw) return JSON.parse(raw);}catch(e){}
+      return {users:[], currentUser:null, posts:[], watermark:null};
+    }
+    function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+    // --- UI: user area ---
+    const userArea = document.getElementById('userArea');
+    const composerArea = document.getElementById('composerArea');
+    const feedEl = document.getElementById('feed');
+
+    function renderUserArea(){
+      userArea.innerHTML = '';
+      if(!state.currentUser){
+        const box = document.createElement('div'); box.className='login-box';
+        const loginBtn = document.createElement('button'); loginBtn.className='btn small'; loginBtn.textContent='Login / Register';
+        loginBtn.onclick = ()=> showAuthModal();
+        box.appendChild(loginBtn);
+        userArea.appendChild(box);
+      } else {
+        const u = state.currentUser;
+        const pill = document.createElement('div'); pill.className='pill';
+        pill.innerHTML = `Signed in as <strong>${escapeHtml(u.username)}</strong>`;
+        const out = document.createElement('button'); out.className='small'; out.textContent='Sign out'; out.style.marginLeft='10px';
+        out.onclick = ()=>{ state.currentUser = null; saveState(); renderAll(); };
+        userArea.appendChild(pill); userArea.appendChild(out);
+      }
+    }
+
+    function showAuthModal(){
+      composerArea.innerHTML = '';
+      const card = document.createElement('div'); card.className='card';
+      card.innerHTML = `
+        <h3>Login or register (local only)</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="authUser" placeholder="username" />
+          <input id="authPass" placeholder="password" type="password" />
+          <button id="btnLogin" class="btn small">Login</button>
+          <button id="btnRegister" class="small">Register</button>
+        </div>
+        <div class="muted" style="margin-top:8px">Accounts are stored in your browser only. No server.</div>
+      `;
+      composerArea.appendChild(card);
+      document.getElementById('btnLogin').onclick = ()=>{
+        const u = document.getElementById('authUser').value.trim();
+        const p = document.getElementById('authPass').value;
+        if(!u||!p){alert('enter credentials');return}
+        const found = state.users.find(x=>x.username===u);
+        if(!found || found.password !== p){alert('invalid');return}
+        state.currentUser = {username:found.username}; saveState(); renderAll();
+      };
+      document.getElementById('btnRegister').onclick = ()=>{
+        const u = document.getElementById('authUser').value.trim();
+        const p = document.getElementById('authPass').value;
+        if(!u||!p){alert('enter credentials');return}
+        if(state.users.find(x=>x.username===u)){alert('username taken');return}
+        state.users.push({username:u,password:p}); state.currentUser={username:u}; saveState(); renderAll();
+      };
+    }
+
+    // --- Composer for posts ---
+    function renderComposer(){
+      composerArea.innerHTML = '';
+      const card = document.createElement('div'); card.className='card';
+      if(!state.currentUser){
+        card.innerHTML = `<div class="muted">Sign in to create posts.</div>`;
+        composerArea.appendChild(card); return;
+      }
+      card.innerHTML = `
+        <h3>Create a post</h3>
+        <textarea id="postText" placeholder="What's happening?"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <input id="postMedia" type="file" accept="video/*,image/*" />
+          <button id="postBtn" class="btn small">Post</button>
+        </div>
+        <div class="muted" style="margin-top:8px">You can attach a video (mp4/webm) or an image. Videos will show the watermark.</div>
+      `;
+      composerArea.appendChild(card);
+      document.getElementById('postBtn').onclick = async ()=>{
+        const text = document.getElementById('postText').value.trim();
+        const file = document.getElementById('postMedia').files[0];
+        if(!text && !file){alert('type or attach media');return}
+        let media = null;
+        if(file){
+          media = await fileToData(file);
+        }
+        const post = {id:Date.now(), author:state.currentUser.username, text, media, createdAt: new Date().toISOString() };
+        state.posts.unshift(post); saveState(); renderAll();
+      };
+    }
+
+    // convert file to object URL (keeps small, not persisted across sessions except if you save blob as data URL)
+    async function fileToData(file){
+      return new Promise((res,rej)=>{
+        const reader = new FileReader();
+        reader.onload = ()=>{
+          res({name:file.name,type:file.type,data:reader.result});
+        };
+        reader.onerror = rej;
+        // Use data URL so localStorage can store small images; videos can be large — we still store data URLs (warning: can bloat localStorage)
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // --- Feed rendering ---
+    function renderFeed(){
+      feedEl.innerHTML = '';
+      if(state.posts.length===0){ feedEl.innerHTML = '<div class="muted">No posts yet — be the first.</div>'; return }
+      for(const p of state.posts){
+        const el = document.createElement('div'); el.className='post';
+        const meta = document.createElement('div'); meta.className='meta';
+        meta.innerHTML = `<div><strong>${escapeHtml(p.author)}</strong> · <span class="muted">${new Date(p.createdAt).toLocaleString()}</span></div>`;
+        el.appendChild(meta);
+        if(p.text) { const t = document.createElement('div'); t.style.marginTop='8px'; t.textContent = p.text; el.appendChild(t); }
+        if(p.media){
+          const wrap = document.createElement('div'); wrap.className='video-wrap';
+          if(p.media.type.startsWith('image/')){
+            const img = document.createElement('img'); img.src = p.media.data; wrap.appendChild(img);
+          } else if(p.media.type.startsWith('video/')){
+            const vid = document.createElement('video'); vid.controls = true; vid.src = p.media.data; vid.playsInline = true; vid.preload='metadata'; vid.style.display='block'; wrap.appendChild(vid);
+            // add watermark overlay if available
+            if(state.watermark && state.watermark.data){
+              const wm = createWatermarkElement();
+              wrap.appendChild(wm);
+              // make the watermark respect size/position
+              positionWatermark(wm);
+            }
+          }
+          el.appendChild(wrap);
+        }
+        feedEl.appendChild(el);
+      }
+    }
+
+    // --- Watermark manager UI wiring ---
+    const wmFile = document.getElementById('wmFile');
+    const wmOpacity = document.getElementById('wmOpacity');
+    const wmSize = document.getElementById('wmSize');
+    const wmPosition = document.getElementById('wmPosition');
+    const wmOpacityLabel = document.getElementById('wmOpacityLabel');
+    const saveWm = document.getElementById('saveWm');
+    const clearWm = document.getElementById('clearWm');
+
+    // initialize ui from state
+    if(state.watermark){
+      if(state.watermark.opacity) wmOpacity.value = state.watermark.opacity;
+      if(state.watermark.size) wmSize.value = state.watermark.size;
+      if(state.watermark.position) wmPosition.value = state.watermark.position;
+    }
+    wmOpacityLabel.textContent = wmOpacity.value;
+
+    wmOpacity.oninput = ()=>{ wmOpacityLabel.textContent = wmOpacity.value; }
+
+    saveWm.onclick = async ()=>{
+      const f = wmFile.files[0];
+      if(f){
+        try{
+          const data = await fileToData(f);
+          state.watermark = {data:data.data, type:data.type, name:data.name, opacity:wmOpacity.value, size:wmSize.value, position:wmPosition.value};
+          saveState(); renderAll(); alert('Watermark saved (local)');
+        }catch(e){alert('error reading file')}
+      } else {
+        // no file, but user changed settings: save only settings
+        state.watermark = state.watermark || {};
+        state.watermark.opacity = wmOpacity.value; state.watermark.size = wmSize.value; state.watermark.position = wmPosition.value;
+        saveState(); renderAll(); alert('Watermark settings saved');
+      }
+    };
+
+    clearWm.onclick = ()=>{ state.watermark = null; saveState(); renderAll(); alert('Watermark cleared'); }
+
+    // create watermark DOM element (image or video)
+    function createWatermarkElement(){
+      const wm = state.watermark;
+      const div = document.createElement('div'); div.className='watermark-overlay';
+      if(!wm) return div;
+      if(wm.type.startsWith('image/')){
+        const img = document.createElement('img'); img.src = wm.data; img.style.width = '100%'; img.style.height='auto'; div.appendChild(img);
+      } else if(wm.type.startsWith('video/')){
+        const v = document.createElement('video'); v.src = wm.data; v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true; v.style.width='100%'; v.style.height='auto'; div.appendChild(v);
+      }
+      return div;
+    }
+
+    function positionWatermark(el){
+      const wm = state.watermark;
+      if(!wm) return;
+      const sizePct = Number(wm.size) || 20;
+      // set width relative to container width
+      el.style.width = sizePct + '%';
+      el.style.opacity = Number(wm.opacity) || 0.6;
+      // placement
+      switch(wm.position){
+        case 'bottom-right': el.style.right='8px'; el.style.bottom='8px'; el.style.left=''; el.style.top=''; break;
+        case 'bottom-left': el.style.left='8px'; el.style.bottom='8px'; el.style.right=''; el.style.top=''; break;
+        case 'top-right': el.style.right='8px'; el.style.top='8px'; el.style.left=''; el.style.bottom=''; break;
+        case 'top-left': el.style.left='8px'; el.style.top='8px'; el.style.right=''; el.style.bottom=''; break;
+        case 'center': el.style.left='50%'; el.style.top='50%'; el.style.transform='translate(-50%,-50%)'; el.style.right=''; el.style.bottom=''; break;
+      }
+    }
+
+    // --- Utilities ---
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]); }
+
+    // render everything
+    function renderAll(){ renderUserArea(); renderComposer(); renderFeed(); }
+    renderAll();
+
+    // --- small safety: limit total stored data size ---
+    // Note: storing large videos as data URLs will quickly exceed localStorage quotas. This demo will still attempt to save but warn.
+    const _origSaveState = saveState;
+    function saveState(){
+      try{
+        const serialized = JSON.stringify(state);
+        if(serialized.length > 1024*1024*4){ // ~4MB
+          if(!confirm('State is >4MB. Storing large media in localStorage may fail. Continue?')) return;
+        }
+        localStorage.setItem(LS_KEY, serialized);
+      }catch(e){ alert('Failed to save state: ' + e.message); }
+    }
+
+  </script>
+</body>
+</html>
